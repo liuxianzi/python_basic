@@ -2,10 +2,11 @@
 """
  @Time           2025/6/27 20:31
  @File           sqlhelper.py
- @Description    数据库连接池 比较规范的写法（当做一个公共的工具，被其他文件调用
+ @Description    数据库连接池 + threading.local 实现对象上下文管理 with...as...
  @Author         
 """
 import pymysql
+import threading
 from dbutils.pooled_db import PooledDB
 
 
@@ -26,6 +27,7 @@ class SqlHelper(object):
             database='newflask',
             charset='utf8'
         )
+        self.local = threading.local()
 
     def connect(self):
         """建立连接"""
@@ -53,6 +55,23 @@ class SqlHelper(object):
         result = cursor.fetchall()
         self.close(conn, cursor)
         return result
+
+    def __enter__(self):
+        conn, cursor = self.connect()
+        rv = getattr(self.local, 'stack', None)
+        if not rv:
+            self.local['stack'] = [(conn, cursor), ]
+        else:
+            self.local['stack'].append((conn, cursor))
+        return cursor
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        rv = getattr(self.local, 'stack', None)
+        if not rv:
+            return
+        conn, cursor = self.local.stack.pop()
+        cursor.close()
+        conn.close()
 
 
 # 声明一个对象 确保每次引入的是同一个对象(单例)
